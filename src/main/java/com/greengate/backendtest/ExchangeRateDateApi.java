@@ -8,15 +8,21 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jboss.resteasy.reactive.Separator;
 
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.format.DateTimeParseException;
 import java.util.Map;
+import java.util.Set;
+
+import static com.greengate.backendtest.ValidationUtils.isValidCurrencyCode;
 
 /**
  * Get the exchange rate at the specified date using api.frankfurter.app
@@ -30,21 +36,68 @@ public class ExchangeRateDateApi {
     @Path("{date}")
     @GET
     @Produces(MediaType.APPLICATION_JSON)
-    public ExchangeRateResult getExchangeRates(String date,
-                                               @QueryParam("base") String base,
-                                               @QueryParam("symbols") String[] symbols) throws Exception {
-        Map<String, Double> rates = fetchExchangeRateFromFrankfurter(date, base, symbols);
-        if (rates == null) {
-            return null; // TODO: handle 404
+    public Response getExchangeRates(String date,
+                                     @QueryParam("base") String base,
+                                     @QueryParam("symbols") @Separator(",") Set<String> symbols) throws Exception {
+
+        String errorMsg = validateParamsAndGetError(date, base, symbols);
+        if (errorMsg != null) {
+            return Response.status(404)
+                    .type(MediaType.TEXT_PLAIN_TYPE)
+                    .entity("{}" + errorMsg)
+                    .build();
         }
-        ExchangeRateResult result = new ExchangeRateResult();
-        result.setBase(base);
-        result.setDate(new LocalDate(date));
-        result.setRates(rates);
-        return result;
+        try {
+            Map<String, Double> rates = fetchExchangeRateFromFrankfurter(date, base, symbols);
+
+            ExchangeRateResult result = new ExchangeRateResult();
+            result.setBase(base);
+            result.setDate(new LocalDate(date));
+            result.setRates(rates);
+            return Response.status(200).entity(result).build();
+        } catch (Exception e) {
+            LOG.error("Unable to get the exchange rate: {}", e.getMessage());
+            return Response.status(404)
+                    .type(MediaType.TEXT_PLAIN_TYPE)
+                    .entity("{}")
+                    .build();
+        }
     }
 
-    private Map<String, Double> fetchExchangeRateFromFrankfurter(String date, String currencyFrom, String[] currenciesTo) throws IOException, InterruptedException {
+    private String validateParamsAndGetError(String date, String base, Set<String> symbols) {
+        if (date == null) {
+            return "Date must be specified";
+        }
+
+        // Check date
+        try {
+            java.time.LocalDate parsedDate = java.time.LocalDate.parse(date);
+            if (!parsedDate.toString().equals(date)) {
+                return "Invalid date";
+            }
+        } catch (DateTimeParseException e) {
+            return "Invalid date format";
+        }
+
+        // Check base currency
+        if (!isValidCurrencyCode(base)) {
+            return "Invalid base currency code: " + base;
+        }
+
+        // Check symbols
+        if (symbols == null || symbols.isEmpty()) {
+            return "Symbols must be specified";
+        }
+        for (String symbol : symbols) {
+            if (!isValidCurrencyCode(symbol)) {
+                return "Invalid symbol currency code: " + symbol;
+            }
+        }
+        return null;
+    }
+
+    private Map<String, Double> fetchExchangeRateFromFrankfurter(String date, String currencyFrom, Iterable<String> currenciesTo)
+            throws IOException, InterruptedException, ExchangeRateFetchException {
         URI uri = URI.create(String.format("%s/%s?from=%s&to=%s", FRANKFURTER_API_URL, date, currencyFrom, String.join(",", currenciesTo)));
 
         // Build the GET request
@@ -67,7 +120,7 @@ public class ExchangeRateDateApi {
             return objResponse.getRates();
         } else {
             LOG.error(response);
-            return null; // TODO handle the failure
+            throw new ExchangeRateFetchException("Unable to fetch exchange rate from: " + FRANKFURTER_API_URL);
         }
     }
 
