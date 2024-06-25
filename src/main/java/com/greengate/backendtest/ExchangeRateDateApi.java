@@ -38,13 +38,14 @@ public class ExchangeRateDateApi {
     @Produces(MediaType.APPLICATION_JSON)
     public Response getExchangeRates(String date,
                                      @QueryParam("base") String base,
-                                     @QueryParam("symbols") @Separator(",") Set<String> symbols) throws Exception {
+                                     @QueryParam("symbols") @Separator(",") Set<String> symbols) {
 
         String errorMsg = validateParamsAndGetError(date, base, symbols);
         if (errorMsg != null) {
+            LOG.error("Invalid parameters: {}", errorMsg);
             return Response.status(404)
                     .type(MediaType.TEXT_PLAIN_TYPE)
-                    .entity("{}" + errorMsg)
+                    .entity("{}")
                     .build();
         }
         try {

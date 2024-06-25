@@ -10,10 +10,10 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jboss.resteasy.reactive.RestResponse;
 
 import java.io.IOException;
 import java.math.RoundingMode;
@@ -39,27 +39,39 @@ import static com.greengate.backendtest.ValidationUtils.isValidCurrencyCode;
 public class MultiCurrencyInvoiceApi {
 
     private static final Logger LOG = LogManager.getLogger(MultiCurrencyInvoiceApi.class);
-    private static final String GET_EXCHANGE_RATE_API_URL = "http://localhost:8080/exchange-rate"; // TODO: move to prop file
+    private static final String GET_EXCHANGE_RATE_API_URL = "http://localhost:8080/exchange-rate"; // TODO: move it to prop file
 
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.TEXT_PLAIN)
-    public RestResponse<String> getInvoiceTotal(InvoiceContainer invoiceContainer) {
+    public Response getInvoiceTotal(InvoiceContainer invoiceContainer) {
         String errorMsg = validateInputAndGetError(invoiceContainer);
         if (errorMsg != null) {
-            return RestResponse.status(400, "Error: " + errorMsg);
+            return Response.status(400)
+                    .type(MediaType.TEXT_PLAIN_TYPE)
+                    .entity("Error: " + errorMsg)
+                    .build();
         }
 
         try {
             double total = getInvoiceTotal(invoiceContainer.getInvoice());
-            return RestResponse.ok(roundTotal(total));
+            return Response.status(200)
+                    .type(MediaType.TEXT_PLAIN_TYPE)
+                    .entity(roundTotal(total))
+                    .build();
 
         } catch (ExchangeRateFetchException e) {
             LOG.error("Unable to get the exchange rate: {}", e.getMessage());
-            return RestResponse.status(404, "Error: " + e.getMessage());
+            return Response.status(404)
+                    .type(MediaType.TEXT_PLAIN_TYPE)
+                    .entity("Error: " + e.getMessage())
+                    .build();
         } catch (Exception e) {
             LOG.error("Unable to calculate total: {}", e.getMessage());
-            return RestResponse.status(500, "Error: " + e.getMessage());
+            return Response.status(500)
+                    .type(MediaType.TEXT_PLAIN_TYPE)
+                    .entity("Error: " + e.getMessage())
+                    .build();
         }
 
     }
@@ -104,10 +116,10 @@ public class MultiCurrencyInvoiceApi {
         }
         for (InvoiceLine line : invoice.getLines()) {
             if (line.getAmount() <= 0) {
-                return "Invalid invoice line amount: " + line;
+                return "Invalid invoice line amount: " + line.getAmount();
             }
             if (!isValidCurrencyCode(line.getCurrency())) {
-                return "Invalid invoice line currency: " + line;
+                return "Invalid invoice line currency: " + line.getCurrency();
             }
         }
         return null;
