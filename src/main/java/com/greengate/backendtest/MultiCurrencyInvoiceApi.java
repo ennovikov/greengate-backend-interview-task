@@ -16,6 +16,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -115,7 +116,7 @@ public class MultiCurrencyInvoiceApi {
             return "Invoice must have at least one line item";
         }
         for (InvoiceLine line : invoice.getLines()) {
-            if (line.getAmount() <= 0) {
+            if (line.getAmount() < 0) {
                 return "Invalid invoice line amount: " + line.getAmount();
             }
             if (!isValidCurrencyCode(line.getCurrency())) {
@@ -129,8 +130,8 @@ public class MultiCurrencyInvoiceApi {
         Map<String, Double> rates = getRatesMap(invoice);
         return invoice.getLines().stream()
                 .map(invoiceLine -> {
-                    Double rate = rates.get(invoiceLine.getCurrency());
-                    return rate * invoiceLine.getAmount();
+                    Double originalRate = rates.get(invoiceLine.getCurrency());
+                    return roundRate(originalRate) * invoiceLine.getAmount();
                 })
                 .reduce(0d, Double::sum);
     }
@@ -141,7 +142,7 @@ public class MultiCurrencyInvoiceApi {
                 .collect(Collectors.toSet());
 
         // no need to make the request if it is the same currency
-        if (lineCurrencies.size() == 1 || lineCurrencies.stream().anyMatch(code -> code.equals(invoice.getCurrency()))) {
+        if (lineCurrencies.size() == 1 && lineCurrencies.stream().anyMatch(code -> code.equals(invoice.getCurrency()))) {
             return Collections.singletonMap(invoice.getCurrency(), 1d);
         }
 
@@ -162,6 +163,18 @@ public class MultiCurrencyInvoiceApi {
         DecimalFormat df = new DecimalFormat("#.##");
         df.setRoundingMode(RoundingMode.CEILING);
         return df.format(total);
+    }
+
+    /**
+     * Exchange rates should be calculated at a precision of 4 decimal places
+     * you must round the Exchange Rates API rates before using them to convert line amounts to line totals.
+     * @param rate
+     * @return
+     */
+    private double roundRate(double rate) {
+        return new BigDecimal(rate)
+                .setScale(4, BigDecimal.ROUND_HALF_UP)
+                .doubleValue();
     }
 
     /**
